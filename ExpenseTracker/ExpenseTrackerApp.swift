@@ -1,3 +1,4 @@
+// ExpenseTracker/ExpenseTrackerApp.swift  (replaces existing contents)
 import SwiftUI
 import SwiftData
 
@@ -7,9 +8,7 @@ struct ExpenseTrackerApp: App {
 
     init() {
         do {
-            let created = try ModelContainer(
-                for: Wallet.self, Category.self, Transaction.self
-            )
+            let created = try AppDataStore.makeContainer()
             // If seeding fails, Home shows an empty state instead of crashing.
             try? DefaultDataSeeder.seedIfNeeded(context: created.mainContext)
             container = created
