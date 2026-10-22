@@ -1,5 +1,5 @@
-
 import SwiftUI
+import SwiftData
 
 enum AppTab: Hashable, CaseIterable {
     case home, categories, progress, wallets, settings
@@ -32,7 +32,11 @@ struct RootTabView: View {
         TabView(selection: $selection) {
             ForEach(AppTab.allCases, id: \.self) { tab in
                 NavigationStack {
-                    PlaceholderScreen(tab: tab)
+                    if tab == .home {
+                        HomeView()
+                    } else {
+                        PlaceholderScreen(tab: tab)
+                    }
                 }
                 .tabItem {
                     Label(tab.title, systemImage: tab.symbol)
@@ -83,4 +87,5 @@ private struct PlaceholderScreen: View {
 
 #Preview {
     RootTabView()
+        .modelContainer(for: [Wallet.self, Category.self, Transaction.self], inMemory: true)
 }
