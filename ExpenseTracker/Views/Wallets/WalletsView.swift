@@ -179,42 +179,75 @@ private struct WalletRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .title2) private var badgeSize: CGFloat = 44
 
-    private var balanceText: String { balance?.formatted() ?? "—" }
-    private var isNegative: Bool { (balance?.minorUnits ?? 0) < 0 }
+    private var currentText: String { balance?.formatted() ?? "—" }
+
+    private var initialText: String {
+        Money(minorUnits: wallet.openingBalanceMinor, currencyCode: wallet.currencyCode).formatted()
+    }
+
+    private var isOverdrawn: Bool { (balance?.minorUnits ?? 0) < 0 }
+
+    private var accessibilityDescription: String {
+        guard balance != nil else {
+            return "Current balance unavailable. Initial balance \(initialText)"
+        }
+        let overdrawn = isOverdrawn ? ", overdrawn" : ""
+        return "Current balance \(currentText)\(overdrawn). Initial balance \(initialText)"
+    }
 
     var body: some View {
         let stacked = dynamicTypeSize.isAccessibilitySize
         let layout = stacked
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-            : AnyLayout(HStackLayout(spacing: 12))
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
 
         layout {
-            HStack(spacing: 12) {
-                Text(wallet.emoji)
-                    .font(.title2)
-                    .frame(width: badgeSize, height: badgeSize)
-                    .background(AppTheme.accent.opacity(0.15), in: Circle())
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(wallet.name)
-                        .font(.headline)
-                        .lineLimit(2)
-                    Text(wallet.isArchived ? "\(wallet.currencyCode) · Archived" : wallet.currencyCode)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            identity
             if !stacked { Spacer(minLength: 8) }
-            Text(balanceText)
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(isNegative ? AppTheme.expense : Color.primary)
+            amounts(alignment: stacked ? .leading : .trailing, stacked: stacked)
         }
         .padding(.vertical, 4)
-        .opacity(wallet.isArchived ? 0.75 : 1)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(wallet.name), \(wallet.currencyCode)\(wallet.isArchived ? ", archived" : "")")
-        .accessibilityValue(balance == nil ? "Balance unavailable" : "Balance \(balanceText)")
+        .accessibilityValue(accessibilityDescription)
+    }
+
+    private var identity: some View {
+        HStack(spacing: 12) {
+            Text(wallet.emoji)
+                .font(.title2)
+                .frame(width: badgeSize, height: badgeSize)
+                .background(AppTheme.accent.opacity(0.15), in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(wallet.name)
+                    .font(.headline)
+                    .lineLimit(2)
+                Text(wallet.isArchived ? "\(wallet.currencyCode) · Archived" : wallet.currencyCode)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func amounts(alignment: HorizontalAlignment, stacked: Bool) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            Text("Current")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(currentText)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(isOverdrawn ? AppTheme.expense : Color.primary)
+                .lineLimit(stacked ? 2 : 1)
+                .minimumScaleFactor(0.7)
+            Text("Initial \(initialText)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(stacked ? 2 : 1)
+                .minimumScaleFactor(0.7)
+        }
+        .layoutPriority(1)
     }
 }
 
