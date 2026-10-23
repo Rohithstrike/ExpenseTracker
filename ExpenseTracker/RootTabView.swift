@@ -1,3 +1,4 @@
+// ExpenseTracker/RootTabView.swift  (replaces existing contents)
 import SwiftUI
 import SwiftData
 
@@ -32,9 +33,12 @@ struct RootTabView: View {
         TabView(selection: $selection) {
             ForEach(AppTab.allCases, id: \.self) { tab in
                 NavigationStack {
-                    if tab == .home {
+                    switch tab {
+                    case .home:
                         HomeView()
-                    } else {
+                    case .wallets:
+                        WalletsView()
+                    default:
                         PlaceholderScreen(tab: tab)
                     }
                 }
