@@ -11,7 +11,7 @@ struct HomeView: View {
     @Query(filter: #Predicate<Category> { $0.isArchived == false }, sort: \Category.name)
     private var categories: [Category]
     // Used only for the temporary balance line below.
-    @Query private var transactions: [Transaction]
+    @State private var balanceText = "—"
 
     @State private var kind: TransactionKind = .expense
     @State private var input = AmountInput(
@@ -47,11 +47,14 @@ struct HomeView: View {
         return formatter.currencySymbol ?? currencyCode
     }
 
-    private var balanceText: String {
+    private func refreshBalance() {
         guard let wallet = effectiveWallet,
-              let money = try? BalanceCalculator.balance(of: wallet, transactions: transactions)
-        else { return "—" }
-        return money.formatted()
+              let money = try? WalletBalanceService(context: modelContext).balance(of: wallet)
+        else {
+            balanceText = "—"
+            return
+        }
+        balanceText = money.formatted()
     }
 
     // MARK: Body
@@ -75,6 +78,9 @@ struct HomeView: View {
         .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.success, trigger: saveCount)
+        .onAppear { refreshBalance() }
+        .onChange(of: saveCount) { _, _ in refreshBalance() }
+        .onChange(of: effectiveWallet?.id) { _, _ in refreshBalance() }
         .task(id: saveCount) {
             guard saveCount > 0 else { return }
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { showSuccess = true }
