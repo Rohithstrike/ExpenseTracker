@@ -1,4 +1,4 @@
-// ExpenseTracker/Models/SchemaV1.swift  (new file)
+// ExpenseTracker/Models/SchemaV1.swift  (replaces existing contents)
 import Foundation
 import SwiftData
 
@@ -19,13 +19,24 @@ enum AppMigrationPlan: SchemaMigrationPlan {
 
 /// The one place the app (and its tests) create the data store.
 enum AppDataStore {
-    static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
+    /// `storeURL` exists for tests that open a store file they created. The app always
+    /// passes nil and uses the default store location. iCloud sync is a 1.1 feature.
+    static func makeContainer(inMemory: Bool = false, storeURL: URL? = nil) throws -> ModelContainer {
         let schema = Schema(versionedSchema: SchemaV1.self)
-        let configuration = ModelConfiguration(
-            schema: schema,
-            isStoredInMemoryOnly: inMemory,
-            cloudKitDatabase: ModelConfiguration.CloudKitDatabase.none   // iCloud sync is a 1.1 feature
-        )
+        let configuration: ModelConfiguration
+        if let storeURL {
+            configuration = ModelConfiguration(
+                schema: schema,
+                url: storeURL,
+                cloudKitDatabase: ModelConfiguration.CloudKitDatabase.none
+            )
+        } else {
+            configuration = ModelConfiguration(
+                schema: schema,
+                isStoredInMemoryOnly: inMemory,
+                cloudKitDatabase: ModelConfiguration.CloudKitDatabase.none
+            )
+        }
         return try ModelContainer(
             for: schema,
             migrationPlan: AppMigrationPlan.self,
