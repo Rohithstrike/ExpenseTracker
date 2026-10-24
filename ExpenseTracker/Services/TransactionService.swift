@@ -9,6 +9,8 @@ struct TransactionDraft: Equatable {
     var walletID: UUID
     var categoryID: UUID?
     var note: String = ""
+    /// nil means "now".
+    var timestamp: Date? = nil
 }
 
 enum SaveResult: Equatable {
@@ -71,13 +73,18 @@ struct TransactionService {
             throw TransactionServiceError.categoryRequired
         }
 
+        let when = draft.timestamp ?? now
+        guard when >= Self.earliestDate,
+              when <= now.addingTimeInterval(Self.futureTolerance)
+        else { throw TransactionServiceError.invalidDate }
+
         let created = try Transaction.makeValidated(
             amountMinor: draft.amountMinor,
             kind: draft.kind,
             walletID: draft.walletID,
             categoryID: draft.categoryID,
             note: draft.note,
-            timestamp: now
+            timestamp: when
         )
         created.id = draft.id
 
