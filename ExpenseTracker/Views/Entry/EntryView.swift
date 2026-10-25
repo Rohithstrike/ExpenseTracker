@@ -75,7 +75,7 @@ struct EntryView: View {
 
     private var amountDisplay: some View {
         let sign = model.mode == .income ? "+" : (model.mode == .expense ? "−" : "")
-        let signColor = model.mode == .income ? AppTheme.accent : AppTheme.expense
+        let signColor = model.mode == .income ? AppTheme.income : AppTheme.expense
         return VStack(spacing: 6) {
             (Text(sign).foregroundStyle(signColor)
                 + Text("\(model.currencySymbol)\(model.amount.displayText)"))

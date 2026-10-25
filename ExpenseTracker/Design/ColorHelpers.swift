@@ -18,9 +18,14 @@ extension Color {
     }
 }
 
-extension AppTheme {
-    /// Text/icon colour used on top of the accent colour (readable in both modes).
-    static let onAccent = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .black : .white
-    })
+extension UIColor {
+    /// 0xRRGGBB in sRGB.
+    convenience init(hex: UInt32) {
+        self.init(
+            red: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
+    }
 }

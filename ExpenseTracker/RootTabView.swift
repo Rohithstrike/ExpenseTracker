@@ -49,6 +49,7 @@ struct RootTabView: View {
             }
         }
         .tint(AppTheme.accent)
+        .foregroundStyle(AppTheme.primaryText)
     }
 }
 
