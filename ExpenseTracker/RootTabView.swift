@@ -36,6 +36,8 @@ struct RootTabView: View {
                     switch tab {
                     case .home:
                         HomeView()
+                    case .transactions:
+                        TransactionsView()
                     case .wallets:
                         WalletsView()
                     default:
