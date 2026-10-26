@@ -3,25 +3,25 @@ import SwiftUI
 import SwiftData
 
 enum AppTab: Hashable, CaseIterable {
-    case home, categories, progress, wallets, settings
+    case home, transactions, categories, progress, wallets
 
     var title: String {
         switch self {
         case .home: "Home"
+        case .transactions: "Transactions"
         case .categories: "Categories"
         case .progress: "Progress"
         case .wallets: "Wallets"
-        case .settings: "Settings"
         }
     }
 
     var symbol: String {
         switch self {
         case .home: "house"
+        case .transactions: "list.bullet.rectangle"
         case .categories: "square.grid.2x2"
         case .progress: "chart.pie"
         case .wallets: "creditcard"
-        case .settings: "gearshape"
         }
     }
 }
