@@ -174,6 +174,13 @@ struct CategoryEditorView: View {
 
     // MARK: Pieces
 
+    private var previewDescription: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shownName = trimmed.isEmpty ? "no name yet" : trimmed
+        let colourName = CategoryPalette.color(forHex: colorHex)?.name ?? "custom colour"
+        return "Preview: \(shownName), \(colourName)"
+    }
+
     private var preview: some View {
         HStack(spacing: 12) {
             Text(emoji.isEmpty ? CategoryService.defaultEmoji : emoji)
@@ -189,7 +196,7 @@ struct CategoryEditorView: View {
                 .frame(width: 14, height: 14)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Preview")
+        .accessibilityLabel(previewDescription)
     }
 
     private var suggestionRow: some View {

@@ -16,6 +16,7 @@ final class CategoryEditorSuggestionsTests: XCTestCase {
 
     func testEverySuggestionCanBeSavedThroughTheService() throws {
         let container = try AppDataStore.makeContainer(inMemory: true)
+        defer { withExtendedLifetime(container) {} }
         let service = CategoryService(context: ModelContext(container))
         for (index, item) in CategoryEmojiSuggestions.all.enumerated() {
             XCTAssertNoThrow(
