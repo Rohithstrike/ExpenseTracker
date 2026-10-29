@@ -18,29 +18,19 @@ enum CategoryEmojiSuggestions {
     static let all = ["🍽️", "🚌", "🛒", "🎬", "💡", "🎓", "🏥", "✈️", "🐶", "🎁"]
 }
 
-enum CategoryColorChoices {
-    /// A stored colour that is valid "#RRGGBB" but not in the palette. The editor shows it as an
-    /// extra swatch so an unchanged legacy colour stays selectable, as the service allows.
-    static func legacyHex(for hex: String) -> String? {
-        guard let normalized = CategoryPalette.normalizedHex(hex),
-              CategoryPalette.color(forHex: normalized) == nil
-        else { return nil }
-        return normalized
-    }
-}
-
 struct CategoryEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
     private let mode: CategoryEditorMode
-    private let legacyHex: String?
 
     @State private var name: String
     @State private var emoji: String
     @State private var colorHex: String
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var colorTouched = false
+    @State private var duplicateNote: String?
 
     @ScaledMetric(relativeTo: .title2) private var swatchSize: CGFloat = 40
 
@@ -48,12 +38,10 @@ struct CategoryEditorView: View {
         self.mode = mode
         switch mode {
         case .create:
-            legacyHex = nil
             _name = State(initialValue: "")
             _emoji = State(initialValue: CategoryService.defaultEmoji)
             _colorHex = State(initialValue: CategoryPalette.defaultColor.hex)
         case .edit(let category):
-            legacyHex = CategoryColorChoices.legacyHex(for: category.colorHex)
             _name = State(initialValue: category.name)
             _emoji = State(initialValue: category.emoji)
             _colorHex = State(initialValue:
@@ -66,14 +54,11 @@ struct CategoryEditorView: View {
         return false
     }
 
-    private var canSave: Bool {
-        !isSaving && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    /// In create mode no colour counts as chosen until the user picks one.
+    private var hasColor: Bool { !isCreate || colorTouched }
 
-    private var colorChoices: [CategoryColor] {
-        var list = CategoryPalette.colors
-        if let legacyHex { list.append(CategoryColor(name: "Current colour", hex: legacyHex)) }
-        return list
+    private var canSave: Bool {
+        !isSaving && hasColor && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: Body
@@ -112,13 +97,22 @@ struct CategoryEditorView: View {
                         columns: [GridItem(.adaptive(minimum: swatchSize + 14), spacing: 12)],
                         spacing: 12
                     ) {
-                        ForEach(colorChoices) { option in swatch(option) }
+                        ForEach(CategoryPalette.colors) { option in swatch(option) }
+                        customCell
                     }
                     .padding(.vertical, 6)
+
+                    if let duplicateNote {
+                        Label(duplicateNote, systemImage: "info.circle")
+                            .font(.footnote)
+                            .foregroundStyle(AppTheme.warning)
+                    }
                 } header: {
                     Text("Colour")
                 } footer: {
-                    Text("The colour is used for this category wherever it appears.")
+                    Text(hasColor
+                         ? "The colour is used for this category wherever it appears."
+                         : "Choose a colour to continue.")
                 }
                 .listRowBackground(AppTheme.surface)
 
@@ -167,17 +161,25 @@ struct CategoryEditorView: View {
                 if newValue.count > 1 { emoji = String(newValue.suffix(1)) }
                 errorMessage = nil
             }
-            .onChange(of: colorHex) { _, _ in errorMessage = nil }
+            .onChange(of: colorHex) { _, _ in
+                errorMessage = nil
+                refreshDuplicateNote()
+            }
+            .onAppear { refreshDuplicateNote() }
         }
         .presentationBackground(AppTheme.background)
     }
 
     // MARK: Pieces
 
+    private var previewColor: Color { hasColor ? Color(hex: colorHex) : Color.gray }
+
     private var previewDescription: String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let shownName = trimmed.isEmpty ? "no name yet" : trimmed
-        let colourName = CategoryPalette.color(forHex: colorHex)?.name ?? "custom colour"
+        let colourName = hasColor
+            ? (CategoryPalette.color(forHex: colorHex)?.name ?? "custom colour")
+            : "no colour chosen"
         return "Preview: \(shownName), \(colourName)"
     }
 
@@ -186,13 +188,13 @@ struct CategoryEditorView: View {
             Text(emoji.isEmpty ? CategoryService.defaultEmoji : emoji)
                 .font(.title2)
                 .frame(width: swatchSize + 4, height: swatchSize + 4)
-                .background(Color(hex: colorHex).opacity(0.25), in: Circle())
+                .background(previewColor.opacity(0.25), in: Circle())
             Text(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Category name" : name)
                 .font(.headline)
                 .lineLimit(2)
             Spacer(minLength: 8)
             Circle()
-                .fill(Color(hex: colorHex))
+                .fill(previewColor)
                 .frame(width: 14, height: 14)
         }
         .accessibilityElement(children: .ignore)
@@ -222,10 +224,53 @@ struct CategoryEditorView: View {
         }
     }
 
+    private var customBinding: Binding<Color> {
+        Binding(
+            get: { hasColor ? Color(hex: colorHex) : Color.gray },
+            set: { newColor in
+                guard let hex = CategoryColorHex.hex(from: newColor) else { return }
+                colorTouched = true
+                colorHex = hex
+                refreshDuplicateNote()
+            }
+        )
+    }
+
+    private var customCell: some View {
+        let isCustom = CategoryPalette.color(forHex: colorHex) == nil
+        return ColorPicker("Custom colour", selection: customBinding, supportsOpacity: false)
+            .labelsHidden()
+            .frame(width: swatchSize, height: swatchSize)
+            .overlay {
+                Circle()
+                    .strokeBorder(AppTheme.primaryText.opacity(isCustom ? 1 : 0), lineWidth: 2)
+                    .padding(-4)
+                    .allowsHitTesting(false)
+            }
+            .accessibilityLabel("Custom colour")
+            .accessibilityValue(isCustom ? "selected, \(colorHex)" : "not selected")
+    }
+
+    /// Informational only: never blocks saving. A new category's untouched default colour is skipped.
+    private func refreshDuplicateNote() {
+        guard !(isCreate && !colorTouched),
+              let hex = CategoryPalette.normalizedHex(colorHex) else {
+            duplicateNote = nil
+            return
+        }
+        var excluded: UUID?
+        if case .edit(let category) = mode { excluded = category.id }
+        let match = try? CategoryService(context: modelContext)
+            .activeCategory(usingColorHex: hex, excluding: excluded)
+        duplicateNote = match.map { "Another category already uses this exact colour (\($0.name))." }
+    }
+
     private func swatch(_ option: CategoryColor) -> some View {
-        let selected = CategoryPalette.normalizedHex(colorHex) == option.hex
+        let selected = hasColor && CategoryPalette.normalizedHex(colorHex) == option.hex
         return Button {
+            colorTouched = true
             colorHex = option.hex
+            refreshDuplicateNote()
         } label: {
             Circle()
                 .fill(Color(hex: option.hex))

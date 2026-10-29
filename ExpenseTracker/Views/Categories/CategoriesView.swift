@@ -8,6 +8,7 @@ struct CategoriesView: View {
 
     @State private var alertMessage: String?
     @State private var editorMode: CategoryEditorMode?
+    @State private var pendingDelete: Category?
 
     private var activeCategories: [Category] {
         CategoryService.sorted(categories.filter { !$0.isArchived })
@@ -51,6 +52,15 @@ struct CategoriesView: View {
         } message: {
             Text(alertMessage ?? "")
         }
+        .confirmationDialog(
+            "Delete category?", isPresented: deleteIsPresented, titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { category in
+            Button("Delete “\(category.name)”", role: .destructive) { delete(category) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("No transactions use it. Deleting can't be undone.")
+        }
     }
 
     // MARK: List
@@ -61,6 +71,9 @@ struct CategoriesView: View {
                 ForEach(activeCategories) { category in
                     row(for: category)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) { requestDelete(category) } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                             Button { archive(category) } label: {
                                 Label("Archive", systemImage: "archivebox")
                             }
@@ -80,6 +93,9 @@ struct CategoriesView: View {
                     ForEach(archivedCategories) { category in
                         row(for: category)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) { requestDelete(category) } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                                 Button { unarchive(category) } label: {
                                     Label("Restore", systemImage: "tray.and.arrow.up")
                                 }
@@ -118,6 +134,9 @@ struct CategoriesView: View {
                     Label("Archive", systemImage: "archivebox")
                 }
             }
+            Button(role: .destructive) { requestDelete(category) } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 
@@ -141,6 +160,31 @@ struct CategoriesView: View {
         run(announcement: "\(category.name) restored") {
             try CategoryService(context: modelContext).unarchive(category)
         }
+    }
+
+    /// Blocked categories explain why in the existing alert; others ask for confirmation.
+    private func requestDelete(_ category: Category) {
+        do {
+            if let blocker = try CategoryService(context: modelContext).deletionBlocker(for: category) {
+                alertMessage = blocker.message
+            } else {
+                pendingDelete = category
+            }
+        } catch {
+            alertMessage = "The category couldn't be checked. Please try again."
+        }
+    }
+
+    /// The service re-checks eligibility, so a category that became ineligible shows the alert.
+    private func delete(_ category: Category) {
+        let name = category.name
+        run(announcement: "\(name) deleted") {
+            try CategoryService(context: modelContext).delete(category)
+        }
+    }
+
+    private var deleteIsPresented: Binding<Bool> {
+        Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })
     }
 
     private func run(announcement: String, _ action: () throws -> Void) {

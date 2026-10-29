@@ -9,6 +9,8 @@ enum CategoryError: Error, Equatable {
     case duplicateName(existing: String, isArchived: Bool)
     case categoryLimitReached
     case lastActiveCategory
+    /// Transactions still use this category, so it can only be archived.
+    case categoryInUse(name: String, count: Int)
 
     var message: String {
         switch self {
@@ -17,7 +19,7 @@ enum CategoryError: Error, Equatable {
         case .invalidEmoji:
             return "Choose a single emoji."
         case .invalidColor:
-            return "Choose a colour from the palette."
+            return "Choose a valid colour."
         case .duplicateName(let existing, let isArchived):
             if isArchived {
                 return "“\(existing)” already exists in your archived categories. Restore it instead."
@@ -27,6 +29,9 @@ enum CategoryError: Error, Equatable {
             return "You can have up to \(CategoryService.maxActiveCategories) active categories. Archive one to add another."
         case .lastActiveCategory:
             return "Keep at least one active category, because expenses need one."
+        case .categoryInUse(let name, let count):
+            let noun = count == 1 ? "1 transaction uses" : "\(count) transactions use"
+            return "\(noun) “\(name)”, so it can't be deleted. Archive it instead; past transactions keep it."
         }
     }
 }
@@ -52,7 +57,9 @@ enum CategoryPalette {
         CategoryColor(name: "Green", hex: "#34D399"),
         CategoryColor(name: "Lime", hex: "#84CC16"),
         CategoryColor(name: "Brown", hex: "#B45309"),
-        CategoryColor(name: "Slate", hex: "#94A3B8")
+        CategoryColor(name: "Slate", hex: "#94A3B8"),
+        CategoryColor(name: "Indigo", hex: "#6366F1"),
+        CategoryColor(name: "Fuchsia", hex: "#D946EF")
     ]
 
     /// What a new category starts with.
@@ -80,8 +87,8 @@ struct CategoryInput: Equatable {
     var colorHex: String = CategoryPalette.defaultColor.hex
 }
 
-/// All category rules live here so every screen enforces the same ones. Categories are
-/// archived, never deleted, so transaction history always keeps its category.
+/// All category rules live here so every screen enforces the same ones. A category that any
+/// transaction uses is archived, never deleted, so history always keeps its category.
 struct CategoryService {
     static let maxActiveCategories = 50
     static let maxNameLength = 30
@@ -167,6 +174,23 @@ struct CategoryService {
         try commit()
     }
 
+    /// Why this category can't be deleted right now, or nil if it can.
+    func deletionBlocker(for category: Category) throws -> CategoryError? {
+        let id: UUID? = category.id
+        let used = try context.fetchCount(
+            FetchDescriptor<Transaction>(predicate: #Predicate { $0.categoryID == id }))
+        if used > 0 { return .categoryInUse(name: category.name, count: used) }
+        if !category.isArchived, try activeCount() <= 1 { return .lastActiveCategory }
+        return nil
+    }
+
+    /// Re-checks every rule immediately before deleting. Never touches transactions.
+    func delete(_ category: Category) throws {
+        if let blocker = try deletionBlocker(for: category) { throw blocker }
+        context.delete(category)
+        try commit()
+    }
+
     // MARK: Lists
 
     func activeCategories() throws -> [Category] {
@@ -203,10 +227,6 @@ struct CategoryService {
         guard WalletService.isSingleEmoji(emoji) else { throw CategoryError.invalidEmoji }
 
         guard let hex = CategoryPalette.normalizedHex(input.colorHex) else {
-            throw CategoryError.invalidColor
-        }
-        let keepsOwnColor = existing.flatMap { CategoryPalette.normalizedHex($0.colorHex) } == hex
-        guard CategoryPalette.color(forHex: hex) != nil || keepsOwnColor else {
             throw CategoryError.invalidColor
         }
 

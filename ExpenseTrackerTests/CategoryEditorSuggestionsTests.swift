@@ -23,11 +23,4 @@ final class CategoryEditorSuggestionsTests: XCTestCase {
                 try service.create(CategoryInput(name: "Suggestion \(index)", emoji: item)), item)
         }
     }
-
-    func testLegacyColourIsOnlyOfferedWhenValidButNotInThePalette() {
-        XCTAssertNil(CategoryColorChoices.legacyHex(for: "#60A5FA"))
-        XCTAssertNil(CategoryColorChoices.legacyHex(for: "#60a5fa"))
-        XCTAssertEqual(CategoryColorChoices.legacyHex(for: "#123abc"), "#123ABC")
-        XCTAssertNil(CategoryColorChoices.legacyHex(for: "not a colour"))
-    }
 }

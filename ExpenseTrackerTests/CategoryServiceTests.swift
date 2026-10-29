@@ -54,7 +54,10 @@ final class CategoryServiceTests: XCTestCase {
         XCTAssertEqual(Set(CategoryPalette.colors.map(\.name)).count, hexes.count)
         XCTAssertTrue(CategoryPalette.colors.allSatisfy { !$0.name.isEmpty })
         XCTAssertTrue(hexes.contains(CategoryPalette.defaultColor.hex))
-        XCTAssertEqual(CategoryPalette.colors.count, 12)
+        XCTAssertEqual(CategoryPalette.colors.count, 14)
+        XCTAssertEqual(CategoryPalette.color(forHex: "#6366F1")?.name, "Indigo")
+        XCTAssertEqual(CategoryPalette.color(forHex: "#D946EF")?.name, "Fuchsia")
+        XCTAssertEqual(CategoryPalette.defaultColor.name, "Blue")
     }
 
     func testHexNormalisation() {
@@ -111,13 +114,16 @@ final class CategoryServiceTests: XCTestCase {
         XCTAssertEqual(try env.context.fetchCount(FetchDescriptor<ExpenseTracker.Category>()), 1)
     }
 
-    func testColourMustComeFromThePalette() throws {
+    func testColourAcceptsAnyValidHexButRejectsMalformed() throws {
         let env = try makeEnv()
-        assertThrows(.invalidColor) { try env.service.create(input("A", hex: "#123456")) }
-        assertThrows(.invalidColor) { try env.service.create(input("B", hex: "red")) }
-        assertThrows(.invalidColor) { try env.service.create(input("C", hex: "")) }
+        XCTAssertEqual(try env.service.create(input("A", hex: "#123456")).colorHex, "#123456")
+        XCTAssertEqual(try env.service.create(input("B", hex: "#abcdef")).colorHex, "#ABCDEF")
         XCTAssertEqual(try env.service.create(input("D", hex: "#00e5ff")).colorHex, "#00E5FF")
-        XCTAssertEqual(try env.context.fetchCount(FetchDescriptor<ExpenseTracker.Category>()), 1)
+        assertThrows(.invalidColor) { try env.service.create(input("E", hex: "red")) }
+        assertThrows(.invalidColor) { try env.service.create(input("F", hex: "")) }
+        assertThrows(.invalidColor) { try env.service.create(input("G", hex: "#12345")) }
+        assertThrows(.invalidColor) { try env.service.create(input("H", hex: "#GGGGGG")) }
+        XCTAssertEqual(try env.context.fetchCount(FetchDescriptor<ExpenseTracker.Category>()), 3)
     }
 
     func testDuplicateNamesRejectedIncludingArchived() throws {
@@ -181,14 +187,15 @@ final class CategoryServiceTests: XCTestCase {
         XCTAssertEqual(food.name, "Food")
     }
 
-    func testUpdateKeepsUnlistedLegacyColourButRejectsNewOnes() throws {
+    func testUpdateAcceptsCustomColoursAndRejectsMalformedOnes() throws {
         let env = try makeEnv()
-        let legacy = ExpenseTracker.Category(name: "Old", emoji: "🧪", colorHex: "#123456")
-        env.context.insert(legacy)
-        try env.context.save()
-        XCTAssertNoThrow(try env.service.update(legacy, with: input("Older", hex: "#123456")))
-        assertThrows(.invalidColor) { try env.service.update(legacy, with: input("Older", hex: "#654321")) }
-        XCTAssertNoThrow(try env.service.update(legacy, with: input("Older", hex: "#60A5FA")))
+        let made = try env.service.create(input("Old"))
+        try env.service.update(made, with: input("Old", hex: "#123456"))
+        XCTAssertEqual(made.colorHex, "#123456")
+        try env.service.update(made, with: input("Old", hex: "#654321"))
+        XCTAssertEqual(made.colorHex, "#654321")
+        assertThrows(.invalidColor) { try env.service.update(made, with: input("Old", hex: "nope")) }
+        XCTAssertEqual(made.colorHex, "#654321")
     }
 
     func testCannotArchiveTheLastActiveCategory() throws {
@@ -323,5 +330,68 @@ final class CategoryServiceTests: XCTestCase {
                 try env.service.create(input("FUEL"))
             }
         }
+    }
+
+    // MARK: Delete
+
+    private func makeUsedCategory(_ env: Env) throws -> (category: ExpenseTracker.Category, walletID: UUID) {
+        let category = try env.service.create(input("Used"))
+        let wallet = try WalletService(context: env.context)
+            .create(WalletInput(name: "IOB", openingBalanceMinor: 100_000))
+        try TransactionService(context: env.context).save(
+            TransactionDraft(kind: .expense, amountMinor: 500, walletID: wallet.id, categoryID: category.id))
+        return (category, wallet.id)
+    }
+
+    func testDeleteRemovesUnusedCategory() throws {
+        let env = try makeEnv()
+        let keep = try env.service.create(input("Keep"))
+        let gone = try env.service.create(input("Gone"))
+        try env.service.delete(gone)
+        let names = try env.context.fetch(FetchDescriptor<ExpenseTracker.Category>()).map(\.name)
+        XCTAssertEqual(names, [keep.name])
+    }
+
+    func testDeleteRefusesCategoryUsedByTransaction() throws {
+        let env = try makeEnv()
+        try env.service.create(input("Other"))
+        let used = try makeUsedCategory(env).category
+        assertThrows(.categoryInUse(name: "Used", count: 1)) { try env.service.delete(used) }
+        XCTAssertEqual(try env.context.fetchCount(FetchDescriptor<ExpenseTracker.Category>()), 2)
+        XCTAssertEqual(try env.context.fetchCount(FetchDescriptor<Transaction>()), 1)
+    }
+
+    func testDeleteRefusesArchivedCategoryThatIsStillUsed() throws {
+        let env = try makeEnv()
+        try env.service.create(input("Other"))
+        let used = try makeUsedCategory(env).category
+        try env.service.archive(used)
+        assertThrows(.categoryInUse(name: "Used", count: 1)) { try env.service.delete(used) }
+        XCTAssertEqual(try env.context.fetchCount(FetchDescriptor<Transaction>()), 1)
+    }
+
+    func testDeleteRefusesLastActiveCategory() throws {
+        let env = try makeEnv()
+        let only = try env.service.create(input("Only"))
+        assertThrows(.lastActiveCategory) { try env.service.delete(only) }
+        XCTAssertEqual(try env.context.fetchCount(FetchDescriptor<ExpenseTracker.Category>()), 1)
+    }
+
+    func testDeleteArchivedUnusedCategoryIsAllowedWhenOnlyOneIsActive() throws {
+        let env = try makeEnv()
+        let active = try env.service.create(input("Active"))
+        let retired = try env.service.create(input("Retired"))
+        try env.service.archive(retired)
+        XCTAssertNoThrow(try env.service.delete(retired))
+        let names = try env.context.fetch(FetchDescriptor<ExpenseTracker.Category>()).map(\.name)
+        XCTAssertEqual(names, [active.name])
+    }
+
+    func testCategoryInUseMessageSuggestsArchiving() {
+        let one = CategoryError.categoryInUse(name: "Fuel", count: 1).message
+        let many = CategoryError.categoryInUse(name: "Fuel", count: 3).message
+        XCTAssertTrue(one.contains("1 transaction uses"))
+        XCTAssertTrue(many.contains("3 transactions use"))
+        XCTAssertTrue(one.contains("Archive") && many.contains("Fuel"))
     }
 }
