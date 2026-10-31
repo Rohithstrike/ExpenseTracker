@@ -6,3 +6,8 @@ build/
 *.mobileprovision
 *.p12
 *.cer
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*.pyc
