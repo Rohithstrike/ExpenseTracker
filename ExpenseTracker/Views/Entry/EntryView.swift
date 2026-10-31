@@ -65,12 +65,19 @@ struct EntryView: View {
                 amountDisplay
                 fields
                 keypad
-                saveSection(issue: issue)
             }
             .padding(.horizontal)
             .padding(.bottom, 16)
         }
         .scrollDismissesKeyboard(.interactively)
+        // Pinned above the tab bar (and the keyboard), so Save never scrolls out of reach.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            saveSection(issue: issue)
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+                .background(AppTheme.background)
+        }
     }
 
     private var amountDisplay: some View {
