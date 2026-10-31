@@ -40,6 +40,8 @@ struct RootTabView: View {
                         TransactionsView()
                     case .categories:
                         CategoriesView()
+                    case .progress:
+                        ProgressOverviewView()
                     case .wallets:
                         WalletsView()
                     default:
