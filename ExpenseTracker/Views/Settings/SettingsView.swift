@@ -139,12 +139,9 @@ struct SettingsView: View {
     }
 
     private func load(_ url: URL) {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         do {
-            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard size <= BackupService.maxFileBytes else { throw BackupError.tooLarge }
-            let data = try Data(contentsOf: url)
+            // Bounded read: never loads more than the limit, whatever the file claims.
+            let data = try BackupService.readBounded(from: url)
             let checked = try BackupService.decodeAndValidate(data)
             pending = PendingRestore(data: data, summary: checked.summary)
             backedUpFirst = false
