@@ -90,4 +90,19 @@ final class AmountInputTests: XCTestCase {
         input.setCurrency("JPY")
         XCTAssertTrue(input.isEmpty)
     }
+
+    func testLoadPrefillsExactAmount() {
+        var inr = AmountInput(currencyCode: "INR")
+        inr.load(minorUnits: 15_050)
+        XCTAssertEqual(inr.text, "150.50")
+        XCTAssertEqual(inr.money?.minorUnits, 15_050)
+        var jpy = AmountInput(currencyCode: "JPY")
+        jpy.load(minorUnits: 500)
+        XCTAssertEqual(jpy.text, "500")
+        var rejected = AmountInput(currencyCode: "INR")
+        rejected.load(minorUnits: Money.maxInputMinorUnits + 1)
+        XCTAssertTrue(rejected.isEmpty)
+        rejected.load(minorUnits: 0)
+        XCTAssertTrue(rejected.isEmpty)
+    }
 }

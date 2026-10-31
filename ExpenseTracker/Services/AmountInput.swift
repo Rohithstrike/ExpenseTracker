@@ -52,6 +52,13 @@ struct AmountInput: Equatable {
         text = ""
     }
 
+    /// Pre-fills the amount (for editing). Rejected, empty or non-positive amounts leave it empty.
+    mutating func load(minorUnits: Int64) {
+        text = ""
+        guard minorUnits > 0 else { return }
+        accept(Money(minorUnits: minorUnits, currencyCode: currencyCode).plainString())
+    }
+
     private mutating func accept(_ candidate: String) {
         if (try? Money.parse(candidate, currencyCode: currencyCode)) != nil {
             text = candidate

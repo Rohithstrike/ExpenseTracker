@@ -1,6 +1,20 @@
 import SwiftUI
 import SwiftData
 
+/// An edit sheet to present (a fresh id per request, so the sheet always rebuilds).
+struct TransactionEditorItem: Identifiable {
+    let id = UUID()
+    let model: TransactionEditModel
+}
+
+/// A delete waiting for the user's confirmation. The wording is built when it is requested.
+struct PendingTransactionDelete: Identifiable {
+    let id = UUID()
+    let row: HistoryRow
+    let title: String
+    let message: String
+}
+
 /// The Transactions screen: history for a chosen period, grouped by day and then wallet.
 /// It only displays TransactionsViewModel; every rule lives in the model and services.
 struct TransactionsView: View {
@@ -8,6 +22,9 @@ struct TransactionsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var model: TransactionsViewModel?
+    @State private var editorItem: TransactionEditorItem?
+    @State private var pendingDelete: PendingTransactionDelete?
+    @State private var alertMessage: String?
 
     var body: some View {
         Group {
@@ -20,6 +37,25 @@ struct TransactionsView: View {
         }
         .background(AppTheme.background.ignoresSafeArea())
         .navigationTitle("Transactions")
+        .sheet(item: $editorItem, onDismiss: { model?.reload() }) { item in
+            TransactionEditorView(model: item.model)
+        }
+        .confirmationDialog(
+            pendingDelete?.title ?? "Delete transaction?",
+            isPresented: deleteIsPresented,
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { pending in
+            Button("Delete", role: .destructive) { delete(pending) }
+            Button("Cancel", role: .cancel) {}
+        } message: { pending in
+            Text(pending.message)
+        }
+        .alert("Can't update transaction", isPresented: alertIsPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage ?? "")
+        }
         .onAppear {
             // Entries are saved on Home, so every appearance re-reads the store.
             if let model {
@@ -60,42 +96,111 @@ struct TransactionsView: View {
     }
 
     private func history(_ model: TransactionsViewModel) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                ForEach(model.days) { day in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(model.formatting.dayTitle(for: day.day))
-                            .font(.title3.weight(.semibold))
-                            .accessibilityAddTraits(.isHeader)
-                        ForEach(day.wallets) { group in
-                            walletSection(group, model)
+        List {
+            ForEach(model.days) { day in
+                ForEach(day.wallets) { group in
+                    Section {
+                        ForEach(group.rows) { row in
+                            rowView(row, group, model)
                         }
+                    } header: {
+                        sectionHeader(day: day, group: group, model: model)
                     }
                 }
             }
-            .padding(.horizontal)
-            .padding(.bottom, 16)
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         .refreshable { model.reload() }
     }
 
-    private func walletSection(_ group: WalletHistory, _ model: TransactionsViewModel) -> some View {
+    private func sectionHeader(day: DayHistory, group: WalletHistory, model: TransactionsViewModel) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            if day.wallets.first?.id == group.id {
+                Text(model.formatting.dayTitle(for: day.day))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .textCase(nil)
+                    .accessibilityAddTraits(.isHeader)
+            }
             Text(model.formatting.walletHeading(group))
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.secondaryText)
+                .textCase(nil)
                 .accessibilityAddTraits(.isHeader)
-            VStack(spacing: 0) {
-                ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { Divider().padding(.leading, 66) }
-                    TransactionRowView(
-                        row: row,
-                        currencyCode: group.currencyCode,
-                        formatting: model.formatting)
+        }
+    }
+
+    private func rowView(_ row: HistoryRow, _ group: WalletHistory, _ model: TransactionsViewModel) -> some View {
+        TransactionRowView(row: row, currencyCode: group.currencyCode, formatting: model.formatting)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(AppTheme.surface)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) { requestDelete(row, group, model) } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                if !row.isBrokenTransfer {
+                    Button { startEdit(row, group) } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .tint(AppTheme.accent)
                 }
             }
-            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contextMenu {
+                if !row.isBrokenTransfer {
+                    Button { startEdit(row, group) } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                }
+                Button(role: .destructive) { requestDelete(row, group, model) } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+    }
+
+    // MARK: Edit and delete (the services enforce every rule)
+
+    private func startEdit(_ row: HistoryRow, _ group: WalletHistory) {
+        do {
+            let options = try EditOptions.load(from: modelContext)
+            if let edit = TransactionEditModel.make(
+                row: row, walletID: group.walletID, currencyCode: group.currencyCode, options: options) {
+                editorItem = TransactionEditorItem(model: edit)
+            } else {
+                alertMessage = "This transaction can't be edited."
+            }
+        } catch {
+            alertMessage = "Couldn't open the editor. Please try again."
         }
+    }
+
+    private func requestDelete(_ row: HistoryRow, _ group: WalletHistory, _ model: TransactionsViewModel) {
+        pendingDelete = PendingTransactionDelete(
+            row: row,
+            title: model.formatting.deleteTitle(for: row, currencyCode: group.currencyCode),
+            message: model.formatting.deleteMessage(for: row))
+    }
+
+    /// A transfer removes every row sharing its id, so both sides always go together.
+    private func delete(_ pending: PendingTransactionDelete) {
+        do {
+            if let transferID = pending.row.transferID {
+                try TransferService(context: modelContext).delete(transferID: transferID)
+            } else {
+                try TransactionService(context: modelContext).delete(id: pending.row.id)
+            }
+        } catch {
+            alertMessage = "The transaction couldn't be deleted. Please try again."
+        }
+        model?.reload()
+    }
+
+    private var deleteIsPresented: Binding<Bool> {
+        Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })
+    }
+
+    private var alertIsPresented: Binding<Bool> {
+        Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })
     }
 
     // MARK: Filters
