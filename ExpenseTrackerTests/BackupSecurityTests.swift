@@ -180,8 +180,8 @@ final class BackupSecurityTests: XCTestCase {
     func testLimitsAreCentralAndMatchTheRequirements() {
         let l = BackupLimits.standard
         XCTAssertEqual(l.maxFileBytes, 30_000_000)
-        XCTAssertEqual(l.maxWallets, 500)
-        XCTAssertEqual(l.maxCategories, 500)
+        XCTAssertEqual(l.maxWallets, 4)
+        XCTAssertEqual(l.maxCategories, 50)
         XCTAssertEqual(l.maxTransactions, 60_000)
         XCTAssertEqual(l.maxNameCharacters, 100)
         XCTAssertEqual(l.maxNameBytes, 400)
